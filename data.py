@@ -1,22 +1,40 @@
-import requests
+import yfinance as yf
 import streamlit as st
 
 def get_company_data(ticker):
-    api_key = st.secrets["FMP_API_KEY"]
-    base_url = "https://financialmodelingprep.com/api/v3"
+    """
+    Pulls key financial data for a company from Yahoo Finance.
+    Returns a dictionary of the numbers we need for the DCF, or None if
+    the ticker is invalid / data is missing.
+    """
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        cashflow = stock.cashflow
 
-    cf_url = f"{base_url}/cash-flow-statement/{ticker}?limit=1&apikey={api_key}"
-    cf_data = requests.get(cf_url).json()
+        if not info or cashflow.empty:
+            return None
 
-    profile_url = f"{base_url}/profile/{ticker}?apikey={api_key}"
-    profile_data = requests.get(profile_url).json()
+        # Free cash flow = Operating Cash Flow - Capital Expenditures
+        operating_cf = cashflow.loc["Operating Cash Flow"].iloc[0]
+        capex = cashflow.loc["Capital Expenditure"].iloc[0]
+        free_cash_flow = operating_cf + capex  # capex is usually negative already
 
-    bs_url = f"{base_url}/balance-sheet-statement/{ticker}?limit=1&apikey={api_key}"
-    bs_data = requests.get(bs_url).json()
+        current_price = info.get("currentPrice", 0)
+        shares_outstanding = info.get("sharesOutstanding", 0)
+        total_debt = info.get("totalDebt", 0)
+        cash = info.get("totalCash", 0)
+        net_debt = total_debt - cash
 
-    # TEMPORARY DEBUG: show us exactly what each API call returned
-    st.write("Cash flow response:", cf_data)
-    st.write("Profile response:", profile_data)
-    st.write("Balance sheet response:", bs_data)
+        return {
+            "ticker": ticker.upper(),
+            "company_name": info.get("longName", ticker),
+            "free_cash_flow": free_cash_flow,
+            "current_price": current_price,
+            "shares_outstanding": shares_outstanding,
+            "net_debt": net_debt,
+        }
 
-    return None
+    except Exception as e:
+        st.error(f"Error fetching data: {e}")
+        return None
